@@ -1,4 +1,4 @@
-![alt text](https://github.com/muhammedozturk/vulEmbedding/blob/main/an.gif)
+![alt text](https://github.com/muhammedozturk/samplingBasedOptimization/blob/main/outline.jpg)
 
 This repository is devised to explain sampling-based optimization of MLlin,
 
