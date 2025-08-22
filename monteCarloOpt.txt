@@ -1,0 +1,64 @@
+#sc %>% spark_session() %>% invoke("catalog") %>% invoke("dropTempView", "train")
+#sc %>% spark_session() %>% invoke("catalog") %>% invoke("dropTempView", "mydata")
+library(sparktf)
+library(sparklyr)
+library(dplyr)
+library(modeldata)
+#library("caret")
+library("base")
+library("DEoptim")
+library("pryr")
+library("peakRAM")
+
+######################################
+Sys.setenv(JAVA_HOME = "/usr/lib/jvm/default-java")
+config <- spark_config()
+config["spark.executor.cores"] <- 10
+
+
+sc <- spark_connect(master = "local",config=spark_config())
+sdf_len(sc, 10, repartition = 10) %>% sdf_num_partitions()
+
+mydata <- read.csv("trainDense.csv")
+mydata$Class2 <- ifelse(mydata$Class2 == 1, 'yes', 'no') 
+mydata <- mydata[,c("X1","X2","X3","X4","X7","Class2")]
+mydata <- copy_to(sc, mydata)
+
+partitions <- mydata %>%
+  sdf_random_split(training = 0.7, test = 0.3, seed = 1111)
+train<- partitions$training
+test <- partitions$test
+######################################
+#####################################
+
+#############################################
+###############################################
+library(MonteCarlo)
+ttest<-function(iter,step,tol){
+  
+iter <- sample(iter,1)
+  step <- sample(step,1)
+	tol <- sample(tol,1)
+  # generate sample:
+    sample<- c(iter, step, tol)
+
+ mlp_model <- train %>%
+ml_multilayer_perceptron_classifier(Class2 ~ ., layers = c(5, 3, 2),max_iter=sample[1],step_size=sample[2],tol=sample[3])
+pred <- ml_predict(mlp_model, test)
+result <- ml_multiclass_classification_evaluator(pred)
+  
+  
+  # get test decision:
+    decision<- result>0.5
+  
+  # return result:
+    return(list("decision"=decision))
+}
+  iter<-c(10,20,30,40,50,60,70,80,90,100,120,150)
+  step<-c(0.1,0.2,0.3,0.4,0.5)
+  tol<-c(1,2)
+
+# collect parameter grids in list:
+  param_list=list("iter"=iter, "step"=step, "tol"=tol)
+MC_result<-MonteCarlo(func=ttest, nrep=1000, param_list=param_list)  
+
