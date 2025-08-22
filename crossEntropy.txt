@@ -1,0 +1,108 @@
+#sc %>% spark_session() %>% invoke("catalog") %>% invoke("dropTempView", "train")
+#sc %>% spark_session() %>% invoke("catalog") %>% invoke("dropTempView", "mydata")
+library(sparktf)
+library(sparklyr)
+library(dplyr)
+library(modeldata)
+#library("caret")
+library("base")
+library("DEoptim")
+library("pryr")
+library("peakRAM")
+
+######################################
+Sys.setenv(JAVA_HOME = "/usr/lib/jvm/default-java")
+config <- spark_config()
+config["spark.executor.cores"] <- 10
+
+
+sc <- spark_connect(master = "local",config=spark_config())
+sdf_len(sc, 10, repartition = 10) %>% sdf_num_partitions()
+
+mydata <- read.csv("trainDense.csv")
+mydata$Class2 <- ifelse(mydata$Class2 == 1, 'yes', 'no') 
+mydata <- mydata[,c("X1","X2","X3","X4","X7","Class2")]
+mydata <- copy_to(sc, mydata)
+
+partitions <- mydata %>%
+  sdf_random_split(training = 0.7, test = 0.3, seed = 1111)
+train<- partitions$training
+test <- partitions$test
+######################################
+#####################################
+mlp_model <- train %>%
+ml_multilayer_perceptron_classifier(Class2 ~ ., layers = c(5, 3, 2))
+pred <- ml_predict(mlp_model, test)
+ml_multiclass_classification_evaluator(pred)
+#############################################
+###############################################
+    nb_model <- train %>% 
+  ml_naive_bayes(Class2 ~ X1+X2+X3+X7) 
+pred <- ml_predict(nb_model, test) 
+  
+  result <-  ml_multiclass_classification_evaluator(pred,metric_name = "accuracy")
+########################################
+###########################################
+#sc %>% spark_session() %>% invoke("catalog") %>% invoke("dropTempView", "train")
+#sc %>% spark_session() %>% invoke("catalog") %>% invoke("dropTempView", "mydata")
+#for microsoft fabric
+install.packages("sparktf")
+library(sparktf)
+library(sparklyr)
+library(dplyr)
+library(modeldata)
+#library("caret")
+library("base")
+#library("DEoptim")
+library("pryr")
+#library("peakRAM")
+library("parallel")
+######################################
+
+config <- spark_config()
+config["spark.executor.cores"] <- 10
+
+#for microsoft fabric
+Sys.setenv(SPARK_HOME = "/opt/spark")
+#Sys.setenv(JAVA_HOME = "/usr/lib/jvm/default-java")
+sc <- spark_connect(master = "local",config=config)
+sdf_len(sc, 10, repartition = 10) %>% sdf_num_partitions()
+
+mydata <- read.csv("./builtin/creditcard.csv")
+mydata$Class2 <- ifelse(mydata$class == 1, 'yes', 'no') 
+mydata <- mydata[,c("V1","V2","V3","V4","V5","Class2")]
+mydata <- copy_to(sc, mydata)
+
+
+partitions <- mydata %>%
+  sdf_random_split(training = 0.7, test = 0.3, seed = 1111)
+train<- partitions$training
+test <- partitions$test
+
+
+##########################
+
+  ##########RS########################
+  ############parallel computing#####################
+
+library(CEoptim)
+hesapla <- function(X){
+rf_model <- train %>%
+  ml_random_forest(
+    Class2 ~ X1+X2+X3+X4+X7, type = "classification",subsampling_rate=0.2
+    )
+rf_predict <- ml_predict(rf_model, test) 
+  result <-  ml_multiclass_classification_evaluator(rf_predict,metric_name = "accuracy")
+return(result)
+}
+griewank <- function(X) {
+  return(1 + sum(X^2)+hesapla(1) / 4000 - prod(cos(X / sqrt(1:length(X)))))
+}
+
+set.seed(1234)
+mu0 <- c(5, 5, 5, 5, 5); sigma0 <- c(20, 20, 20, 20, 20)
+res <- CEoptim(griewank, continuous = list(mean = mu0, sd = sigma0),
+rho = 0.1, N = 1000L, verbose = TRUE, noImproveThr = Inf)
+ res
+
+
